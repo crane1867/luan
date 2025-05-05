@@ -14,6 +14,10 @@ LOG_FILE="$INSTALL_DIR/let_bot.log"
 LAST_FILE="$INSTALL_DIR/last_run.txt"
 PYTHON="$VENV_DIR/bin/python3"
 
+echo "[*] 强制使用UTC时区 ..."
+sudo timedatectl set-timezone UTC
+sudo systemctl restart cron
+
 echo "[*] 创建目录 $INSTALL_DIR ..."
 mkdir -p "$INSTALL_DIR"
 
@@ -34,7 +38,7 @@ cat > "$SCRIPT_FILE" << EOF
 #!/usr/bin/env python3
 import os
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import requests
 import feedparser
 
@@ -50,7 +54,9 @@ FEED_URL = 'https://lowendtalk.com/categories/offers/feed.rss'
 def log(msg):
     os.makedirs(os.path.dirname(LOG_FILE), exist_ok=True)
     with open(LOG_FILE, 'a') as f:
-        f.write(f"[{datetime.now()}] {msg}\n")
+        # 使用 UTC 时间记录日志
+        utc_time = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+        f.write(f"[{utc_time}] {msg}\n")
 
 def send_tg(text):
     api = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
