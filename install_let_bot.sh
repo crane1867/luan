@@ -140,6 +140,10 @@ CRON="*/5 * * * * /root/let_bot/venv/bin/python3 /root/let_bot/let_offers_bot.py
 crontab /tmp/mycron
 rm /tmp/mycron
 
+# ===打印当前 crontab===
+echo "[DEBUG] 当前 crontab："
+crontab -l
+
 # === 初始化 last_run 文件 ===
 echo "[*] 初始化 last_run.txt ..."
 echo "$(date +%s)" > "$LAST_FILE"
