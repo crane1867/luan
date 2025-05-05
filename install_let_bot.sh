@@ -135,7 +135,10 @@ EOF
 # === 配置定时任务 ===
 echo "[*] 配置 crontab 每5分钟执行一次 ..."
 CRON="*/5 * * * * /root/let_bot/venv/bin/python3 /root/let_bot/let_offers_bot.py"
-(crontab -l 2>/dev/null | grep -v "/root/let_bot/let_offers_bot.py"; echo "$CRON") | crontab -
+# 用临时文件收集并更新 crontab
+( crontab -l 2>/dev/null | grep -v "/root/let_bot/let_offers_bot.py" ; echo "$CRON" ) > /tmp/mycron
+crontab /tmp/mycron
+rm /tmp/mycron
 
 # === 初始化 last_run 文件 ===
 echo "[*] 初始化 last_run.txt ..."
