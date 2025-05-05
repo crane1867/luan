@@ -1,9 +1,9 @@
 #!/bin/bash
 set -e
 
-# === 交互式输入配置项 ===
+# === 用户交互式输入配置 ===
 read -p "请输入 Telegram Bot Token: " BOT_TOKEN
-read -p "请输入 Telegram Chat ID: " CHAT_ID
+read -p "请输入 Telegram Chat ID（用户或频道）: " CHAT_ID
 
 # === 路径设置 ===
 INSTALL_DIR="/root/let_bot"
@@ -14,7 +14,6 @@ LOG_FILE="$INSTALL_DIR/let_bot.log"
 LAST_FILE="$INSTALL_DIR/last_run.txt"
 PYTHON="$VENV_DIR/bin/python3"
 
-# === 环境准备 ===
 echo "[*] 创建目录 $INSTALL_DIR ..."
 mkdir -p "$INSTALL_DIR"
 
@@ -22,7 +21,7 @@ echo "[*] 安装系统依赖 ..."
 apt update
 apt install -y python3 python3-venv python3-pip curl
 
-echo "[*] 创建并激活 Python 虚拟环境 ..."
+echo "[*] 创建 Python 虚拟环境 ..."
 python3 -m venv "$VENV_DIR"
 source "$VENV_DIR/bin/activate"
 
@@ -30,15 +29,16 @@ echo "[*] 安装 Python 包 ..."
 pip install --upgrade pip
 pip install requests feedparser
 
-# === 写入爬虫脚本 ===
-echo "[*] 写入 $SCRIPT_FILE ..."
+echo "[*] 写入爬虫脚本 ..."
 cat > "$SCRIPT_FILE" << EOF
 #!/usr/bin/env python3
-import os, time
-from datetime import datetime, timedelta
-import requests, feedparser
+import os
+import time
+from datetime import datetime, timezone
+import requests
+import feedparser
 
-# === 配置（使用环境变量） ===
+# === 配置 ===
 BOT_TOKEN = '${BOT_TOKEN}'
 CHAT_ID = '${CHAT_ID}'
 INSTALL_DIR = '${INSTALL_DIR}'
@@ -47,19 +47,15 @@ LOG_FILE = os.path.join(INSTALL_DIR, 'let_bot.log')
 LAST_FILE = os.path.join(INSTALL_DIR, 'last_run.txt')
 FEED_URL = 'https://lowendtalk.com/categories/offers/feed.rss'
 
-# 日志记录
 def log(msg):
     os.makedirs(os.path.dirname(LOG_FILE), exist_ok=True)
     with open(LOG_FILE, 'a') as f:
         f.write(f"[{datetime.now()}] {msg}\n")
 
-# 发送 Telegram
 def send_tg(text):
     api = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     try:
-        r = requests.post(api,
-                          data={'chat_id': CHAT_ID, 'text': text, 'parse_mode': 'HTML'},
-                          timeout=10)
+        r = requests.post(api, data={'chat_id': CHAT_ID, 'text': text, 'parse_mode': 'HTML'}, timeout=10)
         if not r.ok:
             log(f"[TG错误 {r.status_code}] {r.text}")
         return r.ok
@@ -67,27 +63,22 @@ def send_tg(text):
         log(f"[TG异常] {e}")
         return False
 
-# 加载上次运行时间
 def load_last_run():
     if os.path.exists(LAST_FILE):
         try:
-            ts_str = open(LAST_FILE).read().strip()
-            return datetime.strptime(ts_str, "%Y-%m-%d %H:%M:%S")
+            ts = datetime.strptime(open(LAST_FILE).read().strip(), "%Y-%m-%d %H:%M:%S")
+            return ts.replace(tzinfo=timezone.utc)
         except Exception as e:
             log(f"[时间解析失败] {e}")
-    return datetime.now() - timedelta(days=1)
+    return datetime.now(timezone.utc) - timedelta(days=1)
 
-
-# 保存当前运行时间
 def save_last_run(dt):
     with open(LAST_FILE, 'w') as f:
         f.write(dt.strftime("%Y-%m-%d %H:%M:%S"))
 
-# 主逻辑
 def check_offers():
     log("开始检查 RSS Feed")
     last_run = load_last_run()
-    # 处理完成后再更新，避免中途中断
     try:
         feed = feedparser.parse(FEED_URL)
     except Exception as e:
@@ -109,7 +100,7 @@ def check_offers():
         pub_struct = entry.get('published_parsed')
         if not pub_struct:
             continue
-        pub_dt = datetime.fromtimestamp(time.mktime(pub_struct))
+        pub_dt = datetime.fromtimestamp(time.mktime(pub_struct), tz=timezone.utc)
         if pub_dt <= last_run:
             continue
         guid = entry.get('id', entry.get('link'))
@@ -129,36 +120,31 @@ def check_offers():
             seen.add(guid)
         with open(DATA_FILE, 'w') as f:
             f.write("\n".join(seen))
-        save_last_run(datetime.now())
+        save_last_run(datetime.now(timezone.utc))
         log(f"[完成] 本次推送 {len(new)} 条新帖")
 
 if __name__ == '__main__':
     check_offers()
 EOF
 
-# === 配置定时任务 ===
-echo "[*] 配置 crontab 每5分钟执行一次 ..."
-CRON_JOB="*/5 * * * * /root/let_bot/venv/bin/python3 /root/let_bot/let_offers_bot.py >> /root/let_bot/cron_debug.log 2>&1"
-crontab -l 2>/dev/null | grep -v "/root/let_bot/let_offers_bot.py" > /tmp/crontab_let
-echo "$CRON_JOB" >> /tmp/crontab_let
-crontab /tmp/crontab_let
-rm /tmp/crontab_let
+chmod +x "$SCRIPT_FILE"
 
+echo "[*] 初始化 last_run.txt ..."
+echo "$(date -u '+%Y-%m-%d %H:%M:%S')" > "$LAST_FILE"
+
+echo "[*] 配置 crontab 每5分钟执行一次 ..."
+CRON="*/5 * * * * $PYTHON $SCRIPT_FILE"
+(crontab -l 2>/dev/null | grep -v "$SCRIPT_FILE"; echo "$CRON") | crontab -
 
 # ===打印当前 crontab===
 echo "[DEBUG] 当前 crontab："
 crontab -l
 
-# === 初始化 last_run 文件 ===
-echo "[*] 初始化 last_run.txt ..."
-echo "$(date +%s)" > "$LAST_FILE"
-
-# === 初次测试 ===
-echo "[*] 初次运行脚本进行测试 ..."
+echo "[*] 初次运行测试 ..."
 $PYTHON "$SCRIPT_FILE"
 
 echo "[✓] 部署完成。
-脚本： $SCRIPT_FILE
-日志： $LOG_FILE
-记录： $DATA_FILE
-最后运行时间文件： $LAST_FILE"
+脚本路径： $SCRIPT_FILE
+日志文件： $LOG_FILE
+记录文件： $DATA_FILE
+上次运行： $LAST_FILE"
