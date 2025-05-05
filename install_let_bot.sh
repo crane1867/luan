@@ -39,8 +39,8 @@ from datetime import datetime, timedelta
 import requests, feedparser
 
 # === 配置（使用环境变量） ===
-BOT_TOKEN = os.getenv('BOT_TOKEN', '${BOT_TOKEN}')
-CHAT_ID = os.getenv('CHAT_ID', '${CHAT_ID}')
+BOT_TOKEN = '${BOT_TOKEN}'
+CHAT_ID = '${CHAT_ID}'
 INSTALL_DIR = '${INSTALL_DIR}'
 DATA_FILE = os.path.join(INSTALL_DIR, 'let_seen.txt')
 LOG_FILE = os.path.join(INSTALL_DIR, 'let_bot.log')
@@ -132,14 +132,10 @@ if __name__ == '__main__':
     check_offers()
 EOF
 
-# === 设置环境变量文件 ===
-echo "export BOT_TOKEN='${BOT_TOKEN}'" > "$INSTALL_DIR/env.sh"
-echo "export CHAT_ID='${CHAT_ID}'" >> "$INSTALL_DIR/env.sh"
-
 # === 配置定时任务 ===
 echo "[*] 配置 crontab 每5分钟执行一次 ..."
-CRON="*/5 * * * * source $INSTALL_DIR/env.sh && $PYTHON $SCRIPT_FILE"
-(crontab -l 2>/dev/null | grep -v "$SCRIPT_FILE"; echo "$CRON") | crontab -
+CRON="*/5 * * * * /root/let_bot/venv/bin/python3 /root/let_bot/let_offers_bot.py"
+(crontab -l 2>/dev/null | grep -v "/root/let_bot/let_offers_bot.py"; echo "$CRON") | crontab -
 
 # === 初始化 last_run 文件 ===
 echo "[*] 初始化 last_run.txt ..."
