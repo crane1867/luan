@@ -134,8 +134,12 @@ EOF
 
 # === 配置定时任务 ===
 echo "[*] 配置 crontab 每5分钟执行一次 ..."
-CRON="*/5 * * * * $PYTHON $SCRIPT_FILE"
-(crontab -l 2>/dev/null | grep -v "$SCRIPT_FILE"; echo "$CRON") | crontab -
+CRON_JOB="*/5 * * * * /root/let_bot/venv/bin/python3 /root/let_bot/let_offers_bot.py >> /root/let_bot/cron_debug.log 2>&1"
+crontab -l 2>/dev/null | grep -v "/root/let_bot/let_offers_bot.py" > /tmp/crontab_let
+echo "$CRON_JOB" >> /tmp/crontab_let
+crontab /tmp/crontab_let
+rm /tmp/crontab_let
+
 
 # ===打印当前 crontab===
 echo "[DEBUG] 当前 crontab："
