@@ -143,7 +143,6 @@ echo "$(date +%s)" > "$LAST_FILE"
 
 # === 初次测试 ===
 echo "[*] 初次运行脚本进行测试 ..."
-source "$INSTALL_DIR/env.sh"
 $PYTHON "$SCRIPT_FILE"
 
 echo "[✓] 部署完成。
