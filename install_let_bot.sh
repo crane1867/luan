@@ -70,14 +70,18 @@ def send_tg(text):
 # 加载上次运行时间
 def load_last_run():
     if os.path.exists(LAST_FILE):
-        ts = float(open(LAST_FILE).read().strip())
-        return datetime.fromtimestamp(ts)
+        try:
+            ts_str = open(LAST_FILE).read().strip()
+            return datetime.strptime(ts_str, "%Y-%m-%d %H:%M:%S")
+        except Exception as e:
+            log(f"[时间解析失败] {e}")
     return datetime.now() - timedelta(days=1)
+
 
 # 保存当前运行时间
 def save_last_run(dt):
     with open(LAST_FILE, 'w') as f:
-        f.write(str(dt.timestamp()))
+        f.write(dt.strftime("%Y-%m-%d %H:%M:%S"))
 
 # 主逻辑
 def check_offers():
