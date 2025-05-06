@@ -9,8 +9,8 @@ read -p "请输入 Telegram Chat ID（用户或频道）: " CHAT_ID
 INSTALL_DIR="/root/let_bot"
 VENV_DIR="$INSTALL_DIR/venv"
 SCRIPT_FILE="$INSTALL_DIR/let_offers_bot.py"
-DATA_FILE="$INSTALL_DIR/let_seen.txt"
-LOG_FILE="$INSTALL_DIR/let_bot.log"
+DATA_FILE="$INSTALL_DIR/let_les_seen.txt"  # 修改了文件名
+LOG_FILE="$INSTALL_DIR/let_les_bot.log"   # 修改了文件名
 LAST_FILE="$INSTALL_DIR/last_run.txt"
 PYTHON="$VENV_DIR/bin/python3"
 
@@ -46,10 +46,13 @@ import feedparser
 BOT_TOKEN = '${BOT_TOKEN}'
 CHAT_ID = '${CHAT_ID}'
 INSTALL_DIR = '${INSTALL_DIR}'
-DATA_FILE = os.path.join(INSTALL_DIR, 'let_seen.txt')
-LOG_FILE = os.path.join(INSTALL_DIR, 'let_bot.log')
+DATA_FILE = os.path.join(INSTALL_DIR, 'let_les_seen.txt')  # 修改了文件名
+LOG_FILE = os.path.join(INSTALL_DIR, 'let_les_bot.log')   # 修改了文件名
 LAST_FILE = os.path.join(INSTALL_DIR, 'last_run.txt')
-FEED_URL = 'https://lowendtalk.com/categories/offers/feed.rss'
+FEED_URLS = {  # 使用字典存储多个 RSS URL
+    'LET': 'https://lowendtalk.com/categories/offers/feed.rss',
+    'LES': 'https://lowendspirit.com/categories/offers/feed.rss'
+}
 
 def log(msg):
     os.makedirs(os.path.dirname(LOG_FILE), exist_ok=True)
@@ -85,34 +88,36 @@ def save_last_run(dt):
 def check_offers():
     log("开始检查 RSS Feed")
     last_run = load_last_run()
-    try:
-        feed = feedparser.parse(FEED_URL)
-    except Exception as e:
-        log(f"[解析RSS失败] {e}")
-        return
-
-    entries = feed.entries or []
-    if not entries:
-        log("[RSS空] 未获取到任何帖子")
-        return
-
     seen = set()
     if os.path.exists(DATA_FILE):
         with open(DATA_FILE) as f:
             seen = set(line.strip() for line in f)
 
     new = []
-    for entry in entries:
-        pub_struct = entry.get('published_parsed')
-        if not pub_struct:
+    for forum, url in FEED_URLS.items():  # 遍历每个论坛的 URL
+        log(f"检查 {forum} 的 RSS Feed: {url}")
+        try:
+            feed = feedparser.parse(url)
+        except Exception as e:
+            log(f"[解析{forum}的RSS失败] {e}")
             continue
-        pub_dt = datetime.fromtimestamp(time.mktime(pub_struct), tz=timezone.utc)
-        if pub_dt <= last_run:
+
+        entries = feed.entries or []
+        if not entries:
+            log(f"[{forum} RSS空] 未获取到任何帖子")
             continue
-        guid = entry.get('id', entry.get('link'))
-        if guid in seen:
-            continue
-        new.append((guid, entry.title, entry.link))
+
+        for entry in entries:
+            pub_struct = entry.get('published_parsed')
+            if not pub_struct:
+                continue
+            pub_dt = datetime.fromtimestamp(time.mktime(pub_struct), tz=timezone.utc)
+            if pub_dt <= last_run:
+                continue
+            guid = entry.get('id', entry.get('link'))
+            if guid in seen:
+                continue
+            new.append((guid, f"[{forum}] {entry.title}", entry.link))  # 标记来自哪个论坛
 
     if not new:
         log("[无新帖] 所有项目已处理过或无新发布")
