@@ -1,8 +1,6 @@
 #!/bin/bash
 
 # 脚本功能：iptables 快捷管理
-# 作者：你的名字或组织
-# 日期：2024-07-26
 
 # 脚本保存路径
 script_path="/root/iptables.sh"
@@ -442,7 +440,7 @@ else
     chmod +x "$script_path"
 
     # 在安装过程中创建别名
-    echo "alias ip='bash $script_path'" >> ~/.bashrc
+    echo "alias ipm='bash $script_path'" >> ~/.bashrc
     source ~/.bashrc
-    echo "iptables 快捷管理脚本已安装到 /root/iptables.sh，可以使用 'ip' 命令。"
+    echo "iptables 快捷管理脚本已安装到 /root/iptables.sh，可以使用 'ipm' 命令。"
 fi
