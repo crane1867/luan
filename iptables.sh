@@ -1,6 +1,11 @@
 #!/bin/bash
 
 # 脚本功能：iptables 快捷管理
+# 作者：你的名字或组织
+# 日期：2024-07-26
+
+# 脚本保存路径
+script_path="/root/iptables.sh"
 
 # 定义一些常用函数
 
@@ -340,6 +345,73 @@ show_rules() {
     echo "------------------------------------------------------------------"
 }
 
+# 主程序
+run() {
+    check_root
+    install_iptables
+
+    if [ -z "$1" ]; then
+        main_menu
+        read -p "请选择操作: " choice
+    else
+        choice="$1"
+        shift  # 移除第一个参数
+    fi
+
+    case $choice in
+        1)
+            ports="$*"  # 使用剩余的所有参数
+            if [ -z "$ports" ]; then
+                read -p "请输入要开放的端口 (多个端口用空格分隔): " ports
+            fi
+            open_port $ports
+            ;;
+        2)
+            ports="$*"
+            if [ -z "$ports" ]; then
+                read -p "请输入要关闭的端口 (多个端口用空格分隔): " ports
+            fi
+            close_port $ports
+            ;;
+        3)
+            open_all_ports
+            ;;
+        4)
+            close_all_ports
+            ;;
+        5)
+            ips="$*"
+            if [ -z "$ips" ]; then
+                read -p "请输入要加入白名单的 IP 或 IP 段 (多个用空格分隔): " ips
+            fi
+            allow_ip $ips
+            ;;
+        6)
+            ips="$*"
+            if [ -z "$ips" ]; then
+                read -p "请输入要加入黑名单的 IP 或 IP 段 (多个用空格分隔): " ips
+            fi
+            block_ip $ips
+            ;;
+        7)
+            allow_ping
+            ;;
+        8)
+            deny_ping
+            ;;
+        9)
+            show_rules
+            ;;
+        0)
+            echo "退出脚本"
+            exit 0
+            ;;
+        *)
+            echo "无效的选择，请重新输入"
+            ;;
+    esac
+}
+
 # 主菜单
 main_menu() {
     clear
@@ -355,65 +427,22 @@ main_menu() {
     echo "------------------------"
     echo "7.  允许PING"
     echo "8.  禁止PING"
-    echo "------------------------"
-    echo "9.  显示当前规则" 
+    echo "9.  显示当前规则"
     echo "------------------------"
     echo "0.  退出"
     echo "------------------------"
-    read -p "请选择操作: " choice
 }
 
-# 主程序
-run() {
-    check_root
-    iptables_init
+# 如果不是交互式 shell，则执行 run 函数
+if [[ $- != *i* ]]; then
+    run "$@"
+else
+    # 将脚本保存到 /root 目录
+    cp "$0" "$script_path"
+    chmod +x "$script_path"
 
-    while true; do
-        main_menu
-        case $choice in
-            1)
-                read -p "请输入要开放的端口 (多个端口用空格分隔): " ports
-                open_port $ports
-                ;;
-            2)
-                read -p "请输入要关闭的端口 (多个端口用空格分隔): " ports
-                close_port $ports
-                ;;
-            3)
-                open_all_ports
-                ;;
-            4)
-                close_all_ports
-                ;;
-            5)
-                read -p "请输入要加入白名单的 IP 或 IP 段 (多个用空格分隔): " ips
-                allow_ip $ips
-                ;;
-            6)
-                read -p "请输入要加入黑名单的 IP 或 IP 段 (多个用空格分隔): " ips
-                block_ip $ips
-                ;;
-            7)
-                allow_ping
-                ;;
-            8)
-                deny_ping
-                ;;
-            9)
-                show_rules
-                ;;
-            0)
-                echo "退出脚本"
-                exit 0
-                ;;
-            *)
-                echo "无效的选择，请重新输入"
-                ;;
-        esac
-        echo "按任意键继续..."
-        read -n 1
-    done
-}
-
-# 运行主程序
-run
+    # 在安装过程中创建别名
+    echo "alias ip='bash $script_path'" >> ~/.bashrc
+    source ~/.bashrc
+    echo "iptables 快捷管理脚本已安装到 /root/iptables.sh，可以使用 'ip' 命令。"
+fi
