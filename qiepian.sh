@@ -44,8 +44,36 @@ cat > "$SLICE_DIR/player.html" <<EOF
   <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
 </head>
 <body>
+<style>
+    * {
+        margin: 0;
+        padding: 0;
+        overflow: hidden; /* 隐藏全局滚动条 */
+    }
+
+    .video-container {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        background: black; /* 视频未加载时的背景色 */
+    }
+
+    #video {
+        max-width: 100%;
+        max-height: 100%;
+        object-fit: contain; /* 保持原始比例适配容器 */
+    }
+</style>
+
+<div class="video-container">
+    <video id="video" controls autoplay></video>
+</div>
   <h2>$BASE_NAME 视频播放器</h2>
-  <video id="video" controls autoplay width="720"></video>
   <script>
     var video = document.getElementById('video');
     var videoSrc = 'index.m3u8';
