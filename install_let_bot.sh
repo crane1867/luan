@@ -43,6 +43,7 @@ cat > "$SCRIPT_FILE" <<EOF
 #!/usr/bin/env python3
 import os
 import time
+import html
 from datetime import datetime, timezone, timedelta
 import cloudscraper
 import feedparser
@@ -66,15 +67,31 @@ def log(msg):
     with open(LOG_FILE, 'a') as f:
         f.write(f"[{utc_time}] {msg}\n")
 
+# HTML转义特殊字符
+def escape_html(text):
+    """转义HTML特殊字符，保留原有标签结构"""
+    return html.escape(text).replace("&lt;b&gt;", "<b>").replace("&lt;/b&gt;", "</b>")\
+        .replace("&lt;i&gt;", "<i>").replace("&lt;/i&gt;", "</i>")\
+        .replace("&lt;u&gt;", "<u>").replace("&lt;/u&gt;", "</u>")\
+        .replace("&lt;code&gt;", "<code>").replace("&lt;/code&gt;", "</code>")        
+
 # 发送 Telegram 消息
 def send_tg(text):
     api = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     try:
         scraper = cloudscraper.create_scraper()
-        r = scraper.post(api, data={'chat_id': CHAT_ID, 'text': text, 'parse_mode': 'HTML'}, timeout=10)
+        # 转义特殊字符但保留Telegram支持的HTML标签
+        safe_text = escape_html(text)
+        r = scraper.post(api, data={'chat_id': CHAT_ID, 'text': safe_text, 'parse_mode': 'HTML'}, timeout=15)
+        
         if not r.ok:
-            log(f"[TG错误 {r.status_code}] {r.text}")
-        return r.ok
+            error_msg = r.text
+            # 特殊处理400错误，提供更多调试信息
+            if r.status_code == 400 and "can't parse entities" in error_msg:
+                log(f"[TG详细错误 400] 消息内容: {text[:100]}...")
+            log(f"[TG错误 {r.status_code}] {error_msg}")
+            return False
+        return True
     except Exception as e:
         log(f"[TG异常] {e}")
         return False
@@ -96,25 +113,33 @@ def save_last_run(dt):
 
 # 主逻辑
 def check_offers():
+    log("="*50)
     log("开始检查 RSS Feed")
     last_run = load_last_run()
+    log(f"上次运行时间: {last_run.strftime('%Y-%m-%d %H:%M:%S UTC')}")
+    
     seen = set()
     if os.path.exists(DATA_FILE):
         with open(DATA_FILE) as f:
             seen = set(line.strip() for line in f)
+    log(f"已加载 {len(seen)} 条历史记录")
 
     new = []
     scraper = cloudscraper.create_scraper()
+    
     for forum, url in FEED_URLS.items():
         log(f"检查 {forum} 的 RSS Feed: {url}")
         try:
-            resp = scraper.get(url, timeout=15)
+            resp = scraper.get(url, timeout=20)
+            log(f"[{forum}] HTTP状态: {resp.status_code}")
             if resp.status_code != 200:
                 log(f"[{forum} HTTP错误] 状态码 {resp.status_code}")
                 continue
+                
             feed = feedparser.parse(resp.content)
+            log(f"[{forum}] 获取到 {len(feed.entries)} 条记录")
         except Exception as e:
-            log(f"[解析{forum}的RSS失败] {e}")
+            log(f"[解析{forum}的RSS失败] {str(e)}")
             continue
 
         entries = feed.entries or []
@@ -126,31 +151,48 @@ def check_offers():
             pub_struct = entry.get('published_parsed')
             if not pub_struct:
                 continue
+                
             pub_dt = datetime.fromtimestamp(time.mktime(pub_struct), tz=timezone.utc)
             if pub_dt <= last_run:
                 continue
+                
             guid = entry.get('guid') or entry.get('id') or entry.get('link')
+            if not guid:
+                guid = entry.link  # 使用链接作为备用GUID
+                
             if not guid or guid in seen:
                 continue
+                
+            # 记录找到的新条目
+            log(f"[新条目] 标题: {entry.title[:50]}... | 发布时间: {pub_dt.strftime('%Y-%m-%d %H:%M:%S UTC')}")
             new.append((guid, f"[{forum}] {entry.title}", entry.link))
 
     if not new:
         log("[无新帖] 所有项目已处理过或无新发布")
     else:
+        success_count = 0
         for guid, title, link in new:
+            # 构造消息（转义会在send_tg中处理）
             text = f"<b>{title}</b>\n{link}"
             if send_tg(text):
-                log(f"[推送成功] {title}")
+                log(f"[推送成功] {title[:40]}...")
+                seen.add(guid)
+                success_count += 1
             else:
-                log(f"[推送失败] {title}")
-            seen.add(guid)
-        with open(DATA_FILE, 'w') as f:
-            f.write("\n".join(seen))
-        save_last_run(datetime.now(timezone.utc))
-        log(f"[完成] 本次推送 {len(new)} 条新帖")
+                log(f"[推送失败] {title[:40]}...")
+                
+        # 只保存成功发送的GUID
+        if success_count > 0:
+            with open(DATA_FILE, 'w') as f:
+                f.write("\n".join(seen))
+            save_last_run(datetime.now(timezone.utc))
+        log(f"[完成] 尝试推送 {len(new)} 条，成功 {success_count} 条")
 
 if __name__ == '__main__':
-    check_offers()
+    try:
+        check_offers()
+    except Exception as e:
+        log(f"[全局异常] {str(e)}")
 EOF
 
 chmod +x "$SCRIPT_FILE"
