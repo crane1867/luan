@@ -60,7 +60,6 @@ Wants=network-online.target docker.service
 Type=oneshot
 ExecStartPre=/bin/sleep 5
 ExecStart=/usr/sbin/iptables-restore /etc/iptables/rules.v4
-ExecStartPost=/usr/sbin/ip6tables-restore /etc/iptables/rules.v6
 RemainAfterExit=yes
 
 [Install]
