@@ -1,9 +1,13 @@
-
 #!/usr/bin/env bash
 
 # =============================================
 # 优化版 WARP IPv4 出口自动恢复脚本
+# (版本 3 - 强制重置)
 # =============================================
+
+# --- 【重要】设置完整的 PATH 环境变量 ---
+# 这解决了 'wg-quick' 等命令在脚本中找不到依赖的问题
+export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
 # --- 全局配置 ---
 readonly TARGET="1.1.1.1"          # Ping 测试目标 (IPv4)
@@ -13,7 +17,7 @@ readonly SLEEP_INTERVAL=10         # 重试间隔(秒)
 readonly MAX_RETRY=3               # 最大重试次数
 readonly LOCK_FILE="/tmp/warp_monitor.lock"  # 锁文件路径
 readonly LOG_FILE="/var/log/warp_monitor.log" # 日志文件路径
-readonly WARP_CONFIG="/etc/wireguard/warp.conf" # WARP 配置文件路径
+# readonly WARP_CONFIG="/etc/wireguard/warp.conf" # 暂时不需要
 
 # --- 颜色配置 ---
 declare -A COLORS=(
@@ -131,25 +135,29 @@ get_loss_rate() {
     echo "$loss"
 }
 
-# --- 重置WARP v4出口 ---
+# --- 【修改】重置WARP v4出口 ---
+# 逻辑: 强制停止，然后强制启动
 reset_warp_v4() {
     log_message "INFO" "开始重置WARP v4出口..."
+    local cmd_output
     
-    # 关闭WARP接口
-    if ! wg-quick down warp &>> "$LOG_FILE"; then
-        log_message "ERROR" "关闭WARP接口失败"
-        return 1
+    # 1. 强制停止
+    # 我们使用 /usr/bin/wg-quick 的完整路径
+    # 即使失败了也不 'return 1'，因为可能接口本就DOWM，失败是正常的
+    log_message "INFO" "执行强制停止: /usr/bin/wg-quick down warp"
+    cmd_output=$(/usr/bin/wg-quick down warp 2>&1)
+    if [[ $? -ne 0 ]]; then
+        log_message "WARNING" "wg-quick down warp 执行失败 (这可能是正常的). 详细: $cmd_output"
+    else
+        log_message "INFO" "wg-quick down warp 执行成功."
     fi
     
-    # 修改配置文件
-    if ! sed -i "s/Endpoint.*/Endpoint = engage.cloudflareclient.com:4500/" "$WARP_CONFIG"; then
-        log_message "ERROR" "修改WARP配置文件失败"
-        return 1
-    fi
-    
-    # 重新启用WARP
-    if ! warp o &>> "$LOG_FILE"; then
-        log_message "ERROR" "重新启用WARP失败"
+    # 2. 重新启用WARP
+    # 这是关键步骤
+    log_message "INFO" "执行启动: /usr/bin/warp o"
+    cmd_output=$(/usr/bin/warp o 2>&1)
+    if [[ $? -ne 0 ]]; then
+        log_message "ERROR" "重新启用WARP失败 (/usr/bin/warp o). 详细: $cmd_output"
         return 1
     fi
     
@@ -212,6 +220,8 @@ main() {
                 show_network_status
                 exit 0
             fi
+        else
+             log_message "ERROR" "WARP重置过程失败."
         fi
     done
     
