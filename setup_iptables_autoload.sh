@@ -1,92 +1,89 @@
-#!/bin/bash
-# ==========================================
-# Debian 12 + Docker 环境下的 iptables 自动恢复脚本
-# ==========================================
+#!/usr/bin/env bash
+# Debian 12 终极稳定版：systemd 内嵌恢复 iptables（不生成额外脚本）
+# 设计目标：
+#   - 只负责恢复防火墙规则
+#   - 通过 Before=docker.service 保证 Docker 启动前已完成
+#   - 不在 unit 里 stop/start docker，避免死锁
+#   - 支持卸载
+#
+# 用法：
+#   安装： sudo ./systemd-inline-iptables-docker-debian12.sh
+#   卸载： sudo ./systemd-inline-iptables-docker-debian12.sh uninstall
 
 set -e
 
-RULES_FILE="/etc/iptables/rules.v4"
-SERVICE_FILE="/etc/systemd/system/iptables-restore.service"
+SERVICE_NAME="iptables-inline-docker-restore.service"
+SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}"
+RULE_DIR="/etc/iptables"
 
-echo "=== 检查 iptables 工具包 ==="
-if ! command -v iptables >/dev/null 2>&1; then
-    apt update -y
-    apt install -y iptables
+if [ "$EUID" -ne 0 ]; then
+  echo "请使用 root 运行" >&2
+  exit 1
 fi
 
-echo "=== 创建规则文件目录 ==="
-mkdir -p /etc/iptables
-
-# 如果规则文件不存在，则创建一个默认模板
-if [ ! -f "$RULES_FILE" ]; then
-    echo "=== 未检测到规则文件，创建默认模板 ==="
-    cat > "$RULES_FILE" <<'EOF'
-# Default iptables rules (auto-generated)
-*filter
-:INPUT DROP [0:0]
-:FORWARD DROP [0:0]
-:OUTPUT ACCEPT [0:0]
-
-# Allow established and related connections
--A INPUT -m state --state RELATED,ESTABLISHED -j ACCEPT
-
-# Allow loopback
--A INPUT -i lo -j ACCEPT
-
-# Allow ICMP (ping)
--A INPUT -p icmp -m icmp --icmp-type 8 -j ACCEPT
-
-# Allow SSH (22)
--A INPUT -p tcp --dport 22 -j ACCEPT
-
-# Allow HTTP/HTTPS
--A INPUT -p tcp -m multiport --dports 80,443 -j ACCEPT
-
-COMMIT
-EOF
-    echo "默认规则文件已创建于 $RULES_FILE"
-else
-    echo "检测到已有规则文件，将使用现有规则。"
+if [ "${1:-}" = "uninstall" ]; then
+  echo "正在卸载 ${SERVICE_NAME} ..."
+  systemctl disable --now "$SERVICE_NAME" 2>/dev/null || true
+  rm -f "$SERVICE_FILE"
+  systemctl daemon-reload
+  echo "卸载完成 ✅"
+  exit 0
 fi
 
-echo "=== 创建 systemd 服务 ==="
+# ---------- 安装流程 ----------
+
+if [ ! -f "$RULE_DIR/rules.v4" ] && [ ! -f "$RULE_DIR/rules.v6" ]; then
+  echo "未检测到规则文件："
+  echo "  $RULE_DIR/rules.v4 / rules.v6"
+  echo "请先执行："
+  echo "  mkdir -p /etc/iptables"
+  echo "  iptables-save  > /etc/iptables/rules.v4"
+  echo "  ip6tables-save > /etc/iptables/rules.v6   # IPv6 可选"
+  exit 1
+fi
+
 cat > "$SERVICE_FILE" <<'EOF'
 [Unit]
-Description=Restore iptables firewall rules after network and Docker startup
-After=network-online.target docker.service
-Wants=network-online.target docker.service
+Description=Restore iptables rules before Docker (final)
+After=network-online.target
+Wants=network-online.target
+Before=docker.service
 
 [Service]
 Type=oneshot
-ExecStartPre=/bin/sleep 5
-ExecStart=/usr/sbin/iptables-restore /etc/iptables/rules.v4
-ExecStartPost=/usr/sbin/ip6tables-restore /etc/iptables/rules.v6
-RemainAfterExit=yes
+TimeoutSec=60
+
+# 恢复 IPv4（若存在）
+ExecStart=/bin/sh -c '[ -f /etc/iptables/rules.v4 ] && /sbin/iptables-restore < /etc/iptables/rules.v4 || true'
+
+# 恢复 IPv6（若存在）
+ExecStart=/bin/sh -c '[ -f /etc/iptables/rules.v6 ] && command -v /sbin/ip6tables-restore >/dev/null 2>&1 && /sbin/ip6tables-restore < /etc/iptables/rules.v6 || true'
+
+RemainAfterExit=no
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
-# 如果没有 IPv6 文件，则删除相关行
-if [ ! -f "/etc/iptables/rules.v6" ]; then
-    sed -i '/ExecStartPost/d' "$SERVICE_FILE"
-fi
-
-echo "=== 重新加载 systemd ==="
 systemctl daemon-reload
+systemctl enable "$SERVICE_NAME"
 
-echo "=== 启用并启动 iptables-restore 服务 ==="
-systemctl enable iptables-restore.service
-systemctl start iptables-restore.service
+cat <<EOF
 
-echo "=== 当前规则 ==="
-iptables -L -n
+安装完成 ✅（终极稳定版）
 
-echo "=== 测试服务状态 ==="
-systemctl status iptables-restore.service --no-pager
+systemd 服务：$SERVICE_NAME 已启用。
 
-echo ""
-echo "✅ 已完成设置。重启后规则将自动加载（Docker 启动后恢复）。"
-echo "如果需要保存当前规则，请运行："
-echo "    iptables-save > /etc/iptables/rules.v4"
-echo ""
+设计说明：
+- 本服务只恢复规则，不控制 Docker
+- 通过 Before=docker.service 确保 Docker 在其之后启动
+- 不会产生循环依赖或卡住启动
+
+测试：
+  systemctl start $SERVICE_NAME
+  journalctl -u $SERVICE_NAME
+
+卸载方式：
+  sudo ./${0##*/} uninstall
+
+EOF
