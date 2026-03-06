@@ -87,7 +87,7 @@ ChallengeResponseAuthentication no
 # 注意：ChallengeResponseAuthentication 在新版本中已由 KbdInteractiveAuthentication 取代
 # 如果你的版本仍识别它，可以加上，但在 Debian 12 中通常只写上面那个即可
 
-# 根用户限制，仅允许root用户使用秘钥登录
+# 根用户限制，root用户仅允许使用秘钥登录
 PermitRootLogin prohibit-password
 
 # 会话保持
